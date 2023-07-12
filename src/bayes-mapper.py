@@ -12,7 +12,6 @@ class Program:
         Returns:
             int: Exit Code
         """
-
         return 0
 
 

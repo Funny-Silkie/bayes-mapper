@@ -8,14 +8,7 @@
             "name": "BayesMapper",
             "type": "python",
             "request": "launch",
-            "module": "bayes-mapper",
-            "justMyCode": true
-        },
-        {
-            "name": "Test",
-            "type": "python",
-            "request": "launch",
-            "module": "test",
+            "program": "bayes-mapper.py",
             "justMyCode": true
         },
         {
@@ -24,10 +17,7 @@
             "request": "launch",
             "module": "mypy",
             "args": [
-                "-p",
-                "bayes-mapper",
-                "-p",
-                "test"
+                "bayes-mapper.py",
             ],
             "justMyCode": true
         }
