@@ -1,5 +1,7 @@
 autopep8==2.0.2
+biopython==1.81
 mypy==1.4.1
 mypy-extensions==1.0.0
+numpy==1.25.1
 pycodestyle==2.10.0
 typing_extensions==4.7.1
