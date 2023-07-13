@@ -38,6 +38,8 @@ class Program:
         tree_format: TreeFormat = arguments.tree_format
         ml_tree: Tree = Bio.Phylo.read(arguments.ml_tree, tree_format)
         bayes_tree: Tree = Bio.Phylo.read(arguments.bayes_tree, tree_format)
+        min_bp: int = arguments.min_bp
+        min_pp: float = arguments.min_pp
 
         bayes_info = TreeInfo(bayes_tree)
 
@@ -47,7 +49,12 @@ class Program:
                 continue
             bayes_clade: CladeInfo | None = bayes_info.find_same_clade(CladeInfo(ml_clade))
             bayes_confidence: str = "-" if bayes_clade is None or bayes_clade.confidence is None else str(bayes_clade.confidence)
-            ml_clade.name = f"{(ml_clade.name if ml_clade.confidence is None else str(ml_clade.confidence))}/{bayes_confidence}"
+            # フィルタリング
+            # 条件に適合しない場合は評価を表示せず
+            if (ml_clade.confidence is not None and ml_clade.confidence < min_bp) or (bayes_clade is not None and bayes_clade.confidence is not None and bayes_clade.confidence < min_pp):
+                ml_clade.name = None
+            else:
+                ml_clade.name = f"{(ml_clade.name if ml_clade.confidence is None else str(ml_clade.confidence))}/{bayes_confidence}"
             ml_clade.confidence = None
 
         Bio.Phylo.write(ml_tree, arguments.out_path, tree_format)
@@ -68,6 +75,8 @@ class Program:
         result.add_argument("-b", "--bayes-tree", type=str, required=True, help="File of bayes tree", metavar="FILE")
         result.add_argument("-f", "--tree-format", type=str, required=False, default="newick", help="Format of tree file (default=newick)", metavar="STR")
         result.add_argument("-o", "--out", type=str, required=True, help="Output file name", metavar="FILE")
+        result.add_argument("--min-bp", type=int, required=False, default=0, help="Minimum value of BP value", metavar="INT")
+        result.add_argument("--min-pp", type=float, required=False, default=0, help="Minimum value of PP value", metavar="FLOAT")
 
         return result
 
@@ -116,10 +125,6 @@ class CladeInfo:
         """信頼度を取得します。
         """
         return self.__confidence
-
-    @property
-    def taxa_list(self) -> list[list[str]]:
-        return self.__taxa_list
 
     @ property
     def name(self) -> str | None:
@@ -274,6 +279,30 @@ class Arguments:
         """出力先のパスを取得します。
         """
         return self.__namespace.out
+
+    @property
+    def min_bp(self) -> int:
+        """フィルターするBP値の最小値を取得します。
+
+        Returns:
+            int: BP値の最小値
+        """
+        result: int = self.__namespace.min_bp
+        if result < 0 or 100 < result:
+            raise ScriptAbortionError(f"BP最小値'{result}'は0-100の整数値である必要があります")
+        return result
+
+    @property
+    def min_pp(self) -> float:
+        """フィルターするPP値の最小値を取得します。
+
+        Returns:
+            float: pP値の最小値
+        """
+        result: float = self.__namespace.min_pp
+        if result < 0 or 1 < result:
+            raise ScriptAbortionError(f"BP最小値'{result}'は0-1の値である必要があります")
+        return result
 
     def __init__(self, namespace: Namespace) -> None:
         """Argumentsの新しいインスタンスを初期化します。
