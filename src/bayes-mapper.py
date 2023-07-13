@@ -8,7 +8,7 @@ import typing
 import Bio.Phylo  # type: ignore
 from Bio.Phylo.BaseTree import Clade, Tree  # type: ignore
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 
 TreeFormat = Literal["newick", "nexus", "phyloxml", "nexml"]
