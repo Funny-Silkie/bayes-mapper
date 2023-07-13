@@ -57,7 +57,7 @@ class Program:
                 ml_clade.name = f"{(ml_clade.name if ml_clade.confidence is None else str(ml_clade.confidence))}/{bayes_confidence}"
             ml_clade.confidence = None
 
-        Bio.Phylo.write(ml_tree, arguments.out_path, tree_format)
+        Bio.Phylo.write(ml_tree, arguments.out_path, tree_format, format_branch_length="%e")
 
         return 0
 
