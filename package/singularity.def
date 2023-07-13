@@ -1,0 +1,29 @@
+Bootstrap: docker
+From: python:3.11.3-slim-bullseye
+
+%files
+  ./src/bayes-mapper.py /usr/src/bayes-mapper/
+  ./src/requirements.txt /usr/src/bayes-mapper/
+
+%post
+  apt update
+  apt upgrade -y
+
+  # Initialize python
+  echo "Resolving dependencies"
+  cd /usr/src/bayes-mapper/
+  ls
+  python3 -m venv .venv
+  . .venv/bin/activate
+  python3 -m pip install --upgrade pip
+  python3 -m pip install -r requirements.txt
+  deactivate
+  cd ../
+
+  apt autoremove -y
+  apt clean
+  
+%environment
+  . /usr/src/bayes-mapper/.venv/bin/activate
+%runscript
+    python3 /usr/src/bayes-mapper/bayes-mapper.py $@
