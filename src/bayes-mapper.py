@@ -147,7 +147,7 @@ class CladeInfo:
         """self.__taxa_listを初期化します。
 
         Args:
-            clade (Clade): BioPythonのCkadeのインスタンス
+            clade (Clade): BioPythonのCladeのインスタンス
         """
         children: list[Clade] = clade.clades
         for child in children:
