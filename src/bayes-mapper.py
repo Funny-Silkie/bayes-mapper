@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 
 from argparse import ArgumentParser, Namespace
+import itertools
 import os
 from sys import argv, stderr, stdout
-from typing import Literal, Self
+from typing import Any, Literal, Self
 import typing
 import Bio.Phylo  # type: ignore
 from Bio.Phylo.BaseTree import Clade, Tree  # type: ignore
 
-__version__ = "1.0.1"
+__version__ = "1.0.2"
 
 
 TreeFormat = Literal["newick", "nexus", "phyloxml", "nexml"]
@@ -36,8 +37,8 @@ class Program:
         arguments = Arguments(parser.parse_args(args))
 
         tree_format: TreeFormat = arguments.tree_format
-        ml_tree: Tree = Bio.Phylo.read(arguments.ml_tree, tree_format)
-        bayes_tree: Tree = Bio.Phylo.read(arguments.bayes_tree, tree_format)
+        ml_tree: Tree = cls.read_tree(arguments.ml_tree, tree_format)
+        bayes_tree: Tree = cls.read_tree(arguments.bayes_tree, tree_format)
         min_bp: int = arguments.min_bp
         min_pp: float = arguments.min_pp
 
@@ -47,7 +48,7 @@ class Program:
             ml_clade: Clade = _internal
             if ml_clade.confidence is None and ml_clade.name is None:
                 continue
-            bayes_clade: CladeInfo | None = bayes_info.find_same_clade(CladeInfo(ml_clade))
+            bayes_clade: CladeInfo | None = bayes_info.find_same_clade(CladeInfo(ml_clade, ml_tree))
             bayes_confidence: str = "-" if bayes_clade is None or bayes_clade.confidence is None else str(bayes_clade.confidence)
             # フィルタリング
             # 条件に適合しない場合は評価を表示せず
@@ -61,7 +62,7 @@ class Program:
 
         return 0
 
-    @ classmethod
+    @classmethod
     def create_parser(cls) -> ArgumentParser:
         """引数解析用のArgumentParserのインスタンスを生成します。
 
@@ -79,6 +80,24 @@ class Program:
         result.add_argument("--min-pp", type=float, required=False, default=0, help="Minimum value of PP value", metavar="FLOAT")
 
         return result
+
+    @classmethod
+    def read_tree(cls, filename: str, format: str) -> Tree:
+        result: Tree = Bio.Phylo.read(filename, format)
+        cls.__assign_parent(result.root, None)
+        return result
+
+    @classmethod
+    def __assign_parent(cls, target: Clade, parent: Clade | None) -> None:
+        """再帰的に親ノードの情報を設定します。
+
+        Args:
+            target (Clade): 設定処理を行う対象クレード
+            parent (Clade | None): 親クレード
+        """
+        target.parent: Clade | None = parent  # type: ignore
+        for child in target.clades:
+            cls.__assign_parent(child, target)
 
 
 class TreeInfo:
@@ -102,7 +121,7 @@ class TreeInfo:
         """
         internals: list[Clade] = tree.get_nonterminals()
         for current in internals:
-            self.__clades.append(CladeInfo(current))
+            self.__clades.append(CladeInfo(current, tree))
 
     def find_same_clade(self, target: "CladeInfo") -> "CladeInfo | None":
         """同値であるクレードを取得します。
@@ -120,43 +139,55 @@ class CladeInfo:
     """クレードの情報を表します。
     """
 
-    @ property
+    @property
     def confidence(self) -> int | float | None:
         """信頼度を取得します。
         """
         return self.__confidence
 
-    @ property
+    @property
     def name(self) -> str | None:
         """名前を取得します。
         """
         return self.__name
 
-    def __init__(self, clade: Clade) -> None:
+    def __init__(self, clade: Clade, tree: Tree) -> None:
         """CladeInfoの新しいインスタンスを初期化します。
 
         Args:
             clade (Clade): BioPythonのCladeのインスタンス
+            tree (Tree): BioPythonのTreeのインスタンス
         """
         self.__confidence: int | float | None = clade.confidence
         self.__name: str | None = clade.name
         self.__taxa_list: list[list[str]] = list[list[str]]()
-        self.__init_taxa_list(clade)
+        self.__init_taxa_list(clade, tree)
 
-    def __init_taxa_list(self, clade: Clade) -> None:
+    def __init_taxa_list(self, clade: Clade, tree: Tree) -> None:
         """self.__taxa_listを初期化します。
 
         Args:
-            clade (Clade): BioPythonのCkadeのインスタンス
+            clade (Clade): BioPythonのCladeのインスタンス
+            tree (Tree): BioPythonのTreeのインスタンス
         """
-        children: list[Clade] = clade.clades
-        for child in children:
-            names: list[str] = list[str]()
-            for _terminal in child.get_terminals():
-                terminal: Clade = _terminal
-                names.append("" if terminal.name is None else terminal.name)
-            names.sort()
-            self.__taxa_list.append(names)
+        children_names: list[str] = [self.__get_normalized_name(current) for current in clade.get_terminals()]
+        children_names.sort()
+        self.__taxa_list.append(children_names)
+        children_set: set[str] = set(children_names)
+        parent_set: set[str] = set([self.__get_normalized_name(current) for current in tree.get_terminals()]) - children_set
+        parent_names: list[str] = list(parent_set)
+        parent_names.sort()
+        self.__taxa_list.append(parent_names)
+        self.__taxa_list.sort()
+
+    @staticmethod
+    def __get_normalized_name(clade: Clade) -> str:
+        clade_name: Any | None = clade.name
+        if clade_name is None:
+            return ""
+        if isinstance(clade_name, str):
+            return clade_name
+        return str(clade_name)
 
     def has_same_taxa(self, target: Self) -> bool:
         """同値のTaxaを表すかどうかを検証します。
@@ -176,53 +207,26 @@ class CladeInfo:
         """
 
         # 同じインスタンスなら常にTrue
-        if id(self) == id(target):
+        if self is target:
             return True
 
-        for self_index_1 in range(len(self.__taxa_list)):
-            # 枝に分かたれた二つのまとまりにグルーピング
-            source_self1 = self.__taxa_list[self_index_1]
-            source_self2 = list[str]()
-            for self_index_2 in range(len(self.__taxa_list)):
-                if self_index_1 != self_index_2:
-                    source_self2.extend(self.__taxa_list[self_index_2])
-            if len(source_self1) > len(source_self2):
-                tmp: list[str] = source_self1
-                source_self1 = source_self2
-                source_self2 = tmp
-            source_self1.sort()
-            source_self2.sort()
+        return self.__taxa_list == target.__taxa_list
 
-            for target_index1 in range(len(target.__taxa_list)):
-                # 枝に分かたれた二つのまとまりにグルーピング
-                source_target1 = target.__taxa_list[target_index1]
-                source_target2 = list[str]()
-                for target_index2 in range(len(target.__taxa_list)):
-                    if target_index1 != target_index2:
-                        source_target2.extend(target.__taxa_list[target_index2])
-                if len(source_target1) > len(source_target2):
-                    tmp = source_target1
-                    source_target1 = source_target2
-                    source_target2 = tmp
-                source_target1.sort()
-                source_target2.sort()
-
-                if source_self1 == source_target1 and source_self2 == source_target2:
-                    return True
-
-        return False
+    def __str__(self) -> str:
+        confidence: str = "-" if self.confidence is None else str(self.confidence)
+        return f"{confidence}\t{str.join(' | ', [str.join(', ', current) for current in self.__taxa_list])}"
 
 
 class ScriptAbortionError(Exception):
     """スクリプト内のエラーを表します。
     """
-    @ property
+    @property
     def message(self) -> str:
         """エラーメッセージを取得します。
         """
         return self.__message
 
-    @ property
+    @property
     def exit_code(self) -> int:
         """Exit Codeを取得します。
         """
@@ -244,7 +248,7 @@ class Arguments:
     """コマンド引数を表します。
     """
 
-    @ property
+    @property
     def ml_tree(self) -> str:
         """MLツリーのパスを取得します。
         """
@@ -254,7 +258,7 @@ class Arguments:
             raise ScriptAbortionError(f"ファイル'{result}'が存在しません")
         return result
 
-    @ property
+    @property
     def bayes_tree(self) -> str:
         """ベイズツリーのパスを取得します。
         """
@@ -264,7 +268,7 @@ class Arguments:
             raise ScriptAbortionError(f"ファイル'{result}'が存在しません")
         return result
 
-    @ property
+    @property
     def tree_format(self) -> TreeFormat:
         """ツリーフォーマットを取得します。
         """
@@ -274,7 +278,7 @@ class Arguments:
             raise ScriptAbortionError(f"ツリーフォーマット'{result}'は無効です")
         return result
 
-    @ property
+    @property
     def out_path(self) -> str:
         """出力先のパスを取得します。
         """
